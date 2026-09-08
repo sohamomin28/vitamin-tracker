@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Harvest Doses</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Karla:wght@400;500;700&display=swap');
+
+  :root{
+    --bark-900:#241610;
+    --bark-800:#312016;
+    --bark-700:#43291b;
+    --bark-600:#5a3722;
+    --cream:#f3e6d3;
+    --cream-dim:#cbb7a0;
+    --ember:#c1622d;
+    --gold:#f2b705;
+    --pumpkin:#e8622c;
+    --aster:#8a5bc4;
+    --line:rgba(243,230,211,0.12);
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(ellipse at 20% -10%, #4a2c1a 0%, transparent 55%),
+      radial-gradient(ellipse at 100% 110%, #3a2214 0%, transparent 50%),
+      var(--bark-900);
+    color:var(--cream);
+    font-family:'Karla', sans-serif;
+    min-height:100vh;
+    padding:28px 16px 60px;
+  }
+
+  .wrap{max-width:480px;margin:0 auto;}
+
+  /* ---- header ---- */
+  header{margin-bottom:22px;}
+  h1{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    font-size:30px;
+    line-height:1.15;
+    margin:0;
+    letter-spacing:-0.01em;
+  }
+
+  /* ---- section ---- */
+  .section{margin-top:30px;}
+
+  /* ---- pill card ---- */
+  #allList{
+    display:flex;
+    flex-direction:row;
+    flex-wrap:wrap;
+    gap:10px;
+  }
+  .card{
+    display:flex; flex-direction:column; align-items:center; gap:10px;
+    background:var(--bark-800);
+    border:1px solid var(--line);
+    border-top:3px solid var(--c1, var(--ember));
+    border-radius:16px;
+    padding:18px 10px 14px;
+    margin-bottom:10px;
+    cursor:pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background .2s, transform .12s, border-color .2s;
+    flex:1 1 0;
+    min-width:96px;
+    text-align:center;
+  }
+  .card:active{transform:scale(0.985);}
+  .card.taken{background:var(--bark-700); border-color:rgba(243,230,211,0.22);}
+
+  .capsule{
+    width:52px; height:52px; flex:none;
+    position:relative;
+    margin:0 auto;
+  }
+  .capsule svg{width:100%; height:100%; display:block; filter:drop-shadow(0 4px 10px rgba(0,0,0,0.4));}
+
+  .card-body{width:100%; min-width:0;}
+  .vname{
+    font-size:16px; font-weight:700; color:var(--cream);
+    background:none; border:none; color:inherit; font-family:inherit;
+    padding:2px 0; width:100%; outline:none; border-bottom:1px solid transparent;
+    text-align:center;
+  }
+  .vname:focus{border-bottom:1px solid var(--cream-dim);}
+  .vtime{font-size:12px; color:var(--cream-dim); margin-top:2px;}
+
+  .check{
+    width:28px; height:28px; flex:none; border-radius:50%;
+    border:2px solid rgba(243,230,211,0.35);
+    display:flex; align-items:center; justify-content:center;
+    transition: background .2s, border-color .2s, transform .3s;
+  }
+  .card.taken .check{
+    background:var(--ember); border-color:var(--ember);
+    transform: rotate(0deg) scale(1.05);
+  }
+  .check svg{width:15px; height:15px; opacity:0; transition:opacity .15s;}
+  .card.taken .check svg{opacity:1;}
+
+  @keyframes fall-in{
+    0%{ transform: translateY(-6px) rotate(-4deg); opacity:0.6; }
+    60%{ transform: translateY(2px) rotate(2deg); }
+    100%{ transform: translateY(0) rotate(0deg); opacity:1; }
+  }
+  .card.just-toggled .capsule{ animation: fall-in .45s ease; }
+
+  footer{margin-top:34px; text-align:center; color:var(--cream-dim); font-size:12px;}
+  footer button{
+    background:none; border:1px solid var(--line); color:var(--cream-dim);
+    font-family:inherit; font-size:12px; padding:6px 12px; border-radius:20px;
+    cursor:pointer; margin-top:10px;
+  }
+  footer button:hover{color:var(--cream); border-color:var(--cream-dim);}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Vitamin Tracker</h1>
+    </header>
+
+    <div class="section">
+      <div id="allList"></div>
+    </div>
+
+    <footer>
+      Harvest Doses · your data stays on this device
+      <br><button id="resetBtn">Reset today</button>
+    </footer>
+  </div>
+
+<script>
+const DEFAULT_CONFIG = [
+  {id:'v1', name:'1', time:'morning', c1:'#ffd23f', c2:'#ff6b35'},
+  {id:'v2', name:'2', time:'morning', c1:'#06d6a0', c2:'#118ab2'},
+  {id:'v3', name:'3', time:'night',   c1:'#ef476f', c2:'#7b2cbf'},
+];
+const STORE_KEY = 'vitamin-data';
+
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function dateStr(offset){
+  const d = new Date();
+  d.setDate(d.getDate()+offset);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+let state = null; // {config:[...], history:{date:[ids]}}
+
+async function loadState(){
+  try{
+    const res = await window.storage.get(STORE_KEY, false);
+    if(res && res.value){
+      state = JSON.parse(res.value);
+      if(!state.config) state.config = DEFAULT_CONFIG;
+      if(!state.history) state.history = {};
+      return;
+    }
+  }catch(e){ /* not found */ }
+  state = { config: DEFAULT_CONFIG, history: {} };
+  await saveState();
+}
+
+async function saveState(){
+  try{
+    await window.storage.set(STORE_KEY, JSON.stringify(state), false);
+  }catch(e){ console.error('save failed', e); }
+}
+
+function capsuleSVG(c1, c2){
+  return `<svg viewBox="0 0 46 46">
+    <defs>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="${c1}"/>
+        <stop offset="100%" stop-color="${c2}"/>
+      </linearGradient>
+    </defs>
+    <g transform="rotate(-40 23 23)">
+      <rect x="9" y="15" width="28" height="16" rx="8" fill="url(#g)"/>
+      <path d="M9 23 A8 8 0 0 1 17 15 H23 V31 H17 A8 8 0 0 1 9 23 Z" fill="${c2}"/>
+      <ellipse cx="19" cy="19" rx="3" ry="1.6" fill="rgba(255,255,255,0.55)"/>
+    </g>
+  </svg>`;
+}
+
+function leafSVG(){
+  return `<svg viewBox="0 0 24 24" fill="none"><path d="M12 2C7 6 4 10 4 14a8 8 0 0 0 16 0c0-4-3-8-8-12Z" fill="currentColor"/></svg>`;
+}
+
+function checkSVG(){
+  return `<svg viewBox="0 0 24 24" fill="none"><path d="M4 12.5 9.5 18 20 6" stroke="#f3e6d3" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function render(){
+  const t = todayStr();
+  const takenToday = new Set(state.history[t] || []);
+  renderList('allList', state.config, takenToday);
+}
+
+function renderList(containerId, vitamins, takenSet){
+  const el = document.getElementById(containerId);
+  el.innerHTML = '';
+  vitamins.forEach(v=>{
+    const card = document.createElement('div');
+    card.className = 'card' + (takenSet.has(v.id) ? ' taken' : '');
+    card.dataset.id = v.id;
+    card.style.setProperty('--c1', v.c1);
+    card.innerHTML = `
+      <div class="capsule">${capsuleSVG(v.c1, v.c2)}</div>
+      <div class="card-body">
+        <input class="vname" value="${escapeHtml(v.name)}" />
+        <div class="vtime">${v.time === 'morning' ? 'Morning dose' : 'Night dose'}</div>
+      </div>
+      <div class="check">${checkSVG()}</div>
+    `;
+    const nameInput = card.querySelector('.vname');
+    nameInput.addEventListener('click', e=> e.stopPropagation());
+    nameInput.addEventListener('change', async ()=>{
+      const cfg = state.config.find(c=>c.id===v.id);
+      cfg.name = nameInput.value.trim() || cfg.name;
+      await saveState();
+    });
+    card.addEventListener('click', ()=> toggle(v.id, card));
+    el.appendChild(card);
+  });
+}
+
+async function toggle(id, cardEl){
+  const t = todayStr();
+  if(!state.history[t]) state.history[t] = [];
+  const arr = state.history[t];
+  const idx = arr.indexOf(id);
+  if(idx === -1){ arr.push(id); } else { arr.splice(idx,1); }
+
+  // trim history to last 30 days
+  const dates = Object.keys(state.history).sort();
+  if(dates.length > 30){
+    dates.slice(0, dates.length-30).forEach(d=> delete state.history[d]);
+  }
+
+  await saveState();
+  cardEl.classList.add('just-toggled');
+  setTimeout(()=>cardEl.classList.remove('just-toggled'), 450);
+  render();
+}
+
+function escapeHtml(s){
+  return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+document.getElementById('resetBtn').addEventListener('click', async ()=>{
+  const t = todayStr();
+  delete state.history[t];
+  await saveState();
+  render();
+});
+
+(async function init(){
+  await loadState();
+  render();
+})();
+</script>
+</body>
+</html>
